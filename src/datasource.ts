@@ -12,6 +12,33 @@ import {
 import { MyQuery, MyDataSourceOptions, DEFAULT_QUERY, GraphiteEndpoint, GraphiteResponse } from './types';
 import { lastValueFrom } from 'rxjs';
 
+// Define the response type for the query API
+interface QueryResponse {
+  results: {
+    A: {
+      frames?: Array<{
+        name?: string;
+        fields: Array<{
+          name: string;
+          type: string;
+          values: any[];
+        }>;
+      }>;
+      error?: any;
+    };
+  };
+}
+
+// Define the frame type for better type safety
+interface GraphiteFrame {
+  name?: string;
+  fields: Array<{
+    name: string;
+    type: string;
+    values: any[];
+  }>;
+}
+
 export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
   graphiteEndpoints: GraphiteEndpoint[];
 
@@ -61,8 +88,9 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
           allGraphiteEndpoints.push({
             name: ds.name,
             url: ds.url,
+            id: ds.id, // Store the datasource ID for proxy requests
           });
-          console.log(`Added Graphite datasource: ${ds.name} at ${ds.url}`);
+          console.log(`Added Graphite datasource: ${ds.name} at ${ds.url} with ID ${ds.id}`);
         }
       }
     } catch (error) {
@@ -142,25 +170,120 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
     to: number
   ): Promise<GraphiteResponse[]> {
     console.log(`Building query for ${endpoint.name}:`, { target: query.target, from, to });
+
+    // Convert timestamps from milliseconds to seconds for Graphite
+    const fromSeconds = Math.floor(from / 1000);
+    const toSeconds = Math.floor(to / 1000);
+    console.log(`Converted timestamps: from=${fromSeconds}, to=${toSeconds}`);
+
+    // Check if we have a datasource ID for proxy requests
+    if (!endpoint.id) {
+      console.warn(`No datasource ID for ${endpoint.name}, trying direct request`);
+
+      // Fall back to direct request if no ID is available
+      const params = new URLSearchParams({
+        target: query.target,
+        from: fromSeconds.toString(),
+        until: toSeconds.toString(),
+        format: query.format || 'json',
+        maxDataPoints: (query.maxDataPoints || 1000).toString(),
+      });
+
+      const url = `${endpoint.url}/render?${params.toString()}`;
+      console.log(`Sending direct request to: ${url}`);
+
+      try {
+        // Use our custom proxy implementation
+        const response = await getBackendSrv().fetch<GraphiteResponse[]>({
+          url: `/api/datasources/proxy/${this.id}/graphite/render`,
+          method: 'GET',
+          params: {
+            target: query.target,
+            from: fromSeconds.toString(),
+            until: toSeconds.toString(),
+            format: query.format || 'json',
+            maxDataPoints: (query.maxDataPoints || 1000).toString(),
+          },
+          headers: {
+            'X-Grafana-Graphite-Endpoint': endpoint.url,
+          },
+        });
+
+        const result = await lastValueFrom(response);
+        console.log(`Response from ${endpoint.name}:`, result);
+        return result.data;
+      } catch (error) {
+        console.error(`Error querying Graphite endpoint ${endpoint.name} through proxy:`, error);
+
+        // If proxy fails, try direct fetch as a fallback
+        console.log(`Trying direct fetch to ${endpoint.url} as fallback`);
+        try {
+          const directResponse = await fetch(url);
+          if (!directResponse.ok) {
+            throw new Error(`HTTP error! status: ${directResponse.status}`);
+          }
+          const data = await directResponse.json();
+          console.log(`Direct fetch response from ${endpoint.name}:`, data);
+          return data;
+        } catch (directError) {
+          console.error(`Error with direct fetch to ${endpoint.name}:`, directError);
+          throw directError;
+        }
+      }
+    }
+
+    // Use our custom proxy implementation with the datasource ID
     const params = new URLSearchParams({
       target: query.target,
-      from: from.toString(),
-      until: to.toString(),
+      from: fromSeconds.toString(),
+      until: toSeconds.toString(),
       format: query.format || 'json',
       maxDataPoints: (query.maxDataPoints || 1000).toString(),
     });
 
-    const url = `${endpoint.url}/render?${params.toString()}`;
-    console.log(`Sending request to: ${url}`);
+    // Use our custom proxy URL format
+    const proxyUrl = `/api/datasources/proxy/${this.id}/graphite/render`;
+    console.log(`Sending proxy request to: ${proxyUrl}`);
 
-    const response = await getBackendSrv().fetch<GraphiteResponse[]>({
-      url,
-      method: 'GET',
-    });
+    try {
+      // Use our custom proxy implementation
+      const response = await getBackendSrv().fetch<GraphiteResponse[]>({
+        url: proxyUrl,
+        method: 'GET',
+        params: {
+          target: query.target,
+          from: fromSeconds.toString(),
+          until: toSeconds.toString(),
+          format: query.format || 'json',
+          maxDataPoints: (query.maxDataPoints || 1000).toString(),
+        },
+        headers: {
+          'X-Grafana-Graphite-Endpoint': endpoint.url,
+        },
+      });
 
-    const result = await lastValueFrom(response);
-    console.log(`Response from ${endpoint.name}:`, result);
-    return result.data;
+      const result = await lastValueFrom(response);
+      console.log(`Response from ${endpoint.name}:`, result);
+      return result.data;
+    } catch (error) {
+      console.error(`Error querying Graphite endpoint ${endpoint.name} through proxy:`, error);
+
+      // If proxy fails, try direct fetch as a fallback
+      const directUrl = `${endpoint.url}/render?${params.toString()}`;
+      console.log(`Trying direct fetch to ${directUrl} as fallback`);
+      try {
+        const directResponse = await fetch(directUrl);
+        if (!directResponse.ok) {
+          throw new Error(`HTTP error! status: ${directResponse.status}`);
+        }
+        const data = await directResponse.json();
+        console.log(`Direct fetch response from ${endpoint.name}:`, data);
+        return data;
+      } catch (directError) {
+        console.error(`Error with direct fetch to ${endpoint.name}:`, directError);
+        throw directError;
+      }
+    }
   }
 
   async testDatasource() {
@@ -180,15 +303,25 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
       const testPromises = this.graphiteEndpoints.map(async (endpoint) => {
         console.log(`Testing connection to ${endpoint.name} at ${endpoint.url}`);
         try {
-          const response = await getBackendSrv().fetch({
-            url: `${endpoint.url}/metrics/find`,
-            method: 'GET',
-          });
-          const result = await lastValueFrom(response);
-          console.log(`Test result for ${endpoint.name}:`, result);
-          return result.status === 200;
+          // Use our new fetchMetrics method to test the connection
+          const metrics = await this.fetchMetrics(endpoint, '*');
+          console.log(`Successfully connected to ${endpoint.name}, found ${metrics.length} metrics`);
+          return true;
         } catch (error) {
           console.error(`Error testing Graphite endpoint ${endpoint.name}:`, error);
+
+          // Provide more detailed error information
+          let errorMessage = 'Unknown error';
+          if (isFetchError(error)) {
+            errorMessage = `HTTP ${error.status}: ${error.statusText}`;
+            if (error.data && error.data.message) {
+              errorMessage += ` - ${error.data.message}`;
+            }
+          } else if (error instanceof Error) {
+            errorMessage = error.message;
+          }
+
+          console.error(`Detailed error for ${endpoint.name}: ${errorMessage}`);
           return false;
         }
       });
@@ -207,7 +340,7 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
         console.warn('Some endpoints failed to connect');
         return {
           status: 'error',
-          message: 'Failed to connect to one or more Graphite endpoints',
+          message: 'Failed to connect to one or more Graphite endpoints. Check the logs for details.',
         };
       }
     } catch (err) {
@@ -225,6 +358,51 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
         status: 'error',
         message,
       };
+    }
+  }
+
+  // Add a method to fetch metrics using the direct URL approach
+  async fetchMetrics(endpoint: GraphiteEndpoint, query: string): Promise<any[]> {
+    console.log(`Fetching metrics from ${endpoint.name} with query: ${query}`);
+
+    // Try proxy first
+    try {
+      const proxyUrl = `/api/datasources/proxy/${this.id}/graphite/metrics/find`;
+      console.log(`Sending proxy request to: ${proxyUrl}`);
+
+      const response = await getBackendSrv().fetch<any[]>({
+        url: proxyUrl,
+        method: 'GET',
+        params: {
+          query: query,
+        },
+        headers: {
+          'X-Grafana-Graphite-Endpoint': endpoint.url,
+        },
+      });
+
+      const result = await lastValueFrom(response);
+      console.log(`Response from ${endpoint.name}:`, result);
+      return result.data;
+    } catch (error) {
+      console.error(`Error fetching metrics from ${endpoint.name} ${endpoint.url} through proxy:`, error);
+
+      // If proxy fails, try direct fetch as a fallback
+      const directUrl = `${endpoint.url}/metrics/find?query=${encodeURIComponent(query)}`;
+      console.log(`Trying direct fetch to ${directUrl} as fallback`);
+
+      try {
+        const directResponse = await fetch(directUrl);
+        if (!directResponse.ok) {
+          throw new Error(`HTTP error! status: ${directResponse.status}`);
+        }
+        const data = await directResponse.json();
+        console.log(`Direct fetch response from ${endpoint.name}:`, data);
+        return data;
+      } catch (directError) {
+        console.error(`Error with direct fetch to ${endpoint.name}:`, directError);
+        throw directError;
+      }
     }
   }
 }

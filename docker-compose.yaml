@@ -27,9 +27,20 @@ services:
       # - "8126:8126"           # statsd admin
   graphite-sontag:
     image: graphiteapp/graphite-statsd
+    ports:
+      - "9081:80"             # graphite web UI
+      # - "8003-8004:2003-2004" # carbon backend receiver
+      # - "8023-8024:2023-2024" # carbon backend aggregator
+      # - "8125:8125/udp"       # statsd
+      # - "8126:8126"           # statsd admin
   graphite-linde:
     image: graphiteapp/graphite-statsd
-
+    ports:
+      - "9082:80"             # graphite web UI
+      # - "8003-8004:2003-2004" # carbon backend receiver
+      # - "8023-8024:2023-2024" # carbon backend aggregator
+      # - "8125:8125/udp"       # statsd
+      # - "8126:8126"           # statsd admin
   # service-metric-simulator is a Go application I wrote to emit mock Graphite
   # metrics to multiple Graphite instances. It allows you to define mock
   # microservices with sets of mock metrics.

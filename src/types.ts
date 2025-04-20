@@ -4,6 +4,7 @@ import { DataQuery } from '@grafana/schema';
 export interface GraphiteEndpoint {
   name: string;
   url: string;
+  id?: string; // Optional ID for Grafana datasource
 }
 
 export interface MyQuery extends DataQuery {

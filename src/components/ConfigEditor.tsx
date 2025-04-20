@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { DataSourcePluginOptionsEditorProps } from '@grafana/data';
 import { MyDataSourceOptions } from '../types';
-import { Button, Input, Stack, Icon } from '@grafana/ui';
+import { Button, Input, Stack } from '@grafana/ui';
 import { GraphiteEndpoint } from '../types';
 import { getBackendSrv } from '@grafana/runtime';
 
@@ -89,7 +89,7 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
   const addEndpoint = () => {
     const updatedEndpoints = [
       ...endpoints,
-      { name: 'New Endpoint', url: 'http://localhost:2003' },
+      { name: 'New Endpoint', url: 'http://localhost:9080' },
     ];
     setEndpoints(updatedEndpoints);
     onOptionsChange({
