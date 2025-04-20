@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "target": "ES2018",
+    "esModuleInterop": true,
+    "allowJs": true,
+    "checkJs": false,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "*": ["*", "*.ts", "*.js"]
+    }
+  },
+  "ts-node": {
+    "transpileOnly": true,
+    "files": true
+  },
+  "include": ["./**/*.ts", "../src/**/*.ts"]
+} 
