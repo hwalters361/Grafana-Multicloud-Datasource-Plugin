@@ -1,18 +1,33 @@
 import { DataSourceJsonData } from '@grafana/data';
 import { DataQuery } from '@grafana/schema';
 
+export interface GraphiteEndpoint {
+  name: string;
+  url: string;
+}
+
 export interface MyQuery extends DataQuery {
-  queryText?: string;
-  constant: number;
+  target: string; // The Graphite query target
+  from?: string; // Optional from time
+  until?: string; // Optional until time
+  maxDataPoints?: number;
+  format?: string;
 }
 
 export const DEFAULT_QUERY: Partial<MyQuery> = {
-  constant: 6.5,
+  target: '',
+  format: 'json',
+  maxDataPoints: 1000,
 };
 
 export interface DataPoint {
   Time: number;
   Value: number;
+}
+
+export interface GraphiteResponse {
+  datapoints: [number, number][]; // [timestamp, value][]
+  target: string;
 }
 
 export interface DataSourceResponse {
@@ -23,12 +38,17 @@ export interface DataSourceResponse {
  * These are options configured for each DataSource instance
  */
 export interface MyDataSourceOptions extends DataSourceJsonData {
-  path?: string;
+  graphiteEndpoints: GraphiteEndpoint[];
 }
 
 /**
  * Value that is used in the backend, but never sent over HTTP to the frontend
  */
 export interface MySecureJsonData {
-  apiKey?: string;
+  graphiteEndpoints?: {
+    [key: string]: {
+      username?: string;
+      password?: string;
+    };
+  };
 }

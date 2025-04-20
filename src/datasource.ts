@@ -7,17 +7,18 @@ import {
   DataSourceInstanceSettings,
   createDataFrame,
   FieldType,
+  MutableDataFrame,
 } from '@grafana/data';
 
-import { MyQuery, MyDataSourceOptions, DEFAULT_QUERY, DataSourceResponse } from './types';
+import { MyQuery, MyDataSourceOptions, DEFAULT_QUERY, GraphiteEndpoint, GraphiteResponse } from './types';
 import { lastValueFrom } from 'rxjs';
 
 export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
-  baseUrl: string;
+  graphiteEndpoints: GraphiteEndpoint[];
 
   constructor(instanceSettings: DataSourceInstanceSettings<MyDataSourceOptions>) {
     super(instanceSettings);
-    this.baseUrl = instanceSettings.url!;
+    this.graphiteEndpoints = instanceSettings.jsonData.graphiteEndpoints || [];
   }
 
   getDefaultQuery(_: CoreApp): Partial<MyQuery> {
@@ -25,8 +26,7 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
   }
 
   filterQuery(query: MyQuery): boolean {
-    // if no query has been provided, prevent the query from being executed
-    return !!query.queryText;
+    return !!query.target;
   }
 
   async query(options: DataQueryRequest<MyQuery>): Promise<DataQueryResponse> {
@@ -34,44 +34,105 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
     const from = range!.from.valueOf();
     const to = range!.to.valueOf();
 
-    // Return a constant for each query.
-    const data = options.targets.map((target) => {
-      return createDataFrame({
+    const promises = options.targets.map(async (target) => {
+      const frame = new MutableDataFrame({
         refId: target.refId,
         fields: [
-          { name: 'Time', values: [from, to], type: FieldType.time },
-          { name: 'Value', values: [target.constant, target.constant], type: FieldType.number },
+          { name: 'Time', type: FieldType.time },
+          { name: 'Value', type: FieldType.number },
         ],
       });
+
+      // Query all Graphite endpoints
+      const endpointPromises = this.graphiteEndpoints.map(async (endpoint) => {
+        try {
+          const response = await this.queryGraphite(endpoint, target, from, to);
+          return response;
+        } catch (error) {
+          console.error(`Error querying Graphite endpoint ${endpoint.name}:`, error);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(endpointPromises);
+
+      // Combine results from all endpoints
+      results.forEach((result) => {
+        if (result) {
+          result.forEach((graphiteResponse: GraphiteResponse) => {
+            if (graphiteResponse.datapoints) {
+              graphiteResponse.datapoints.forEach(([timestamp, value]: [number, number]) => {
+                frame.add({
+                  Time: timestamp * 1000, // Convert to milliseconds
+                  Value: value,
+                });
+              });
+            }
+          });
+        }
+      });
+
+      return frame;
     });
 
+    const data = await Promise.all(promises);
     return { data };
   }
 
-  async request(url: string, params?: string) {
-    const response = getBackendSrv().fetch<DataSourceResponse>({
-      url: `${this.baseUrl}${url}${params?.length ? `?${params}` : ''}`,
+  private async queryGraphite(
+    endpoint: GraphiteEndpoint,
+    query: MyQuery,
+    from: number,
+    to: number
+  ): Promise<GraphiteResponse[]> {
+    const params = new URLSearchParams({
+      target: query.target,
+      from: from.toString(),
+      until: to.toString(),
+      format: query.format || 'json',
+      maxDataPoints: (query.maxDataPoints || 1000).toString(),
     });
-    return lastValueFrom(response);
+
+    const response = await getBackendSrv().fetch<GraphiteResponse[]>({
+      url: `${endpoint.url}/render?${params.toString()}`,
+      method: 'GET',
+    });
+
+    const result = await lastValueFrom(response);
+    return result.data;
   }
 
-  /**
-   * Checks whether we can connect to the API.
-   */
   async testDatasource() {
-    const defaultErrorMessage = 'Cannot connect to API';
+    const defaultErrorMessage = 'Cannot connect to Graphite endpoints';
 
     try {
-      const response = await this.request('/health');
-      if (response.status === 200) {
+      // Test connection to all configured endpoints
+      const testPromises = this.graphiteEndpoints.map(async (endpoint) => {
+        try {
+          const response = await getBackendSrv().fetch({
+            url: `${endpoint.url}/metrics/find`,
+            method: 'GET',
+          });
+          const result = await lastValueFrom(response);
+          return result.status === 200;
+        } catch (error) {
+          console.error(`Error testing Graphite endpoint ${endpoint.name}:`, error);
+          return false;
+        }
+      });
+
+      const results = await Promise.all(testPromises);
+      const allSuccessful = results.every((success: boolean) => success);
+
+      if (allSuccessful) {
         return {
           status: 'success',
-          message: 'Success',
+          message: 'Successfully connected to all Graphite endpoints',
         };
       } else {
         return {
           status: 'error',
-          message: response.statusText ? response.statusText : defaultErrorMessage,
+          message: 'Failed to connect to one or more Graphite endpoints',
         };
       }
     } catch (err) {

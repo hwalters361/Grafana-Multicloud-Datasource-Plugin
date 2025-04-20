@@ -12,3 +12,18 @@ datasources:
       path: '/resources'
     secureJsonData:
       apiKey: 'api-key'
+  - name: graphite-atwood
+    url: http://graphite-atwood
+    type: graphite
+    access: proxy
+    default: false
+  - name: graphite-sontag
+    url: http://graphite-sontag
+    type: graphite
+    access: proxy
+    default: false
+  - name: graphite-linde
+    url: http://graphite-linde
+    type: graphite
+    access: proxy
+    default: false
