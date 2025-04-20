@@ -115,10 +115,43 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
               const timeValues: number[] = [];
               const valueValues: number[] = [];
 
+              // Log the first few datapoints to verify data format
+              console.log(
+                `First few datapoints from ${graphiteResponse.target}:`,
+                graphiteResponse.datapoints.slice(0, 3)
+              );
+
+              // Create a map to store timestamp-value pairs
+              const dataMap = new Map<number, number>();
+
               graphiteResponse.datapoints.forEach(([timestamp, value]: [number, number]) => {
-                timeValues.push(timestamp * 1000); // Convert to milliseconds
+                // Check for null or undefined values
+                if (value === null || value === undefined) {
+                  console.warn(`Null or undefined value found at timestamp ${timestamp}`);
+                  return; // Skip this datapoint
+                }
+
+                // Store the timestamp-value pair
+                dataMap.set(timestamp * 1000, value); // Convert to milliseconds
+              });
+
+              // Sort the data points by timestamp
+              const sortedEntries = Array.from(dataMap.entries()).sort((a, b) => a[0] - b[0]);
+
+              // Extract the sorted arrays
+              sortedEntries.forEach(([timestamp, value]) => {
+                timeValues.push(timestamp);
                 valueValues.push(value);
               });
+
+              // Log the processed arrays to verify data
+              console.log(`Processed ${timeValues.length} valid datapoints for ${graphiteResponse.target}`);
+              if (timeValues.length > 0) {
+                console.log(
+                  `First time value: ${timeValues[0]}, Last time value: ${timeValues[timeValues.length - 1]}`
+                );
+                console.log(`First value: ${valueValues[0]}, Last value: ${valueValues[valueValues.length - 1]}`);
+              }
 
               // Create a unique name for this series that includes the endpoint name
               const seriesName = `${endpoint.name}: ${graphiteResponse.target}`;
@@ -128,13 +161,29 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
                 refId: target.refId,
                 name: seriesName,
                 fields: [
-                  { name: 'Time', type: FieldType.time, values: timeValues },
-                  { name: 'Value', type: FieldType.number, values: valueValues },
+                  { name: 'time', type: FieldType.time, values: timeValues },
+                  {
+                    name: seriesName,
+                    type: FieldType.number,
+                    values: valueValues,
+                    config: {
+                      displayName: seriesName,
+                    },
+                  },
                 ],
+              });
+
+              // Log the created frame to verify it's correct
+              console.log(`Created frame for ${seriesName}:`, {
+                name: frame.name,
+                length: frame.length,
+                fields: frame.fields.map((f: any) => ({ name: f.name, type: f.type, length: f.values.length })),
               });
 
               // Add this frame to our list
               allDataFrames.push(frame);
+            } else {
+              console.warn(`No datapoints found for ${graphiteResponse.target}`);
             }
           });
         }
@@ -142,6 +191,16 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
     }
 
     console.log(`Created ${allDataFrames.length} data frames`);
+
+    // Log the final data frames to verify they're correct
+    allDataFrames.forEach((frame, index) => {
+      console.log(`Data frame ${index}:`, {
+        name: frame.name,
+        length: frame.length,
+        fields: frame.fields.map((f: any) => ({ name: f.name, type: f.type, length: f.values.length })),
+      });
+    });
+
     return { data: allDataFrames };
   }
 
