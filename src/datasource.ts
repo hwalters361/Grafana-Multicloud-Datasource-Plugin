@@ -7,7 +7,6 @@ import {
   DataSourceInstanceSettings,
   createDataFrame,
   FieldType,
-  MutableDataFrame,
 } from '@grafana/data';
 
 import { MyQuery, MyDataSourceOptions, DEFAULT_QUERY, GraphiteEndpoint, GraphiteResponse } from './types';
@@ -35,13 +34,9 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
     const to = range!.to.valueOf();
 
     const promises = options.targets.map(async (target) => {
-      const frame = new MutableDataFrame({
-        refId: target.refId,
-        fields: [
-          { name: 'Time', type: FieldType.time },
-          { name: 'Value', type: FieldType.number },
-        ],
-      });
+      // Collect all data points from all endpoints
+      const timeValues: number[] = [];
+      const valueValues: number[] = [];
 
       // Query all Graphite endpoints
       const endpointPromises = this.graphiteEndpoints.map(async (endpoint) => {
@@ -62,14 +57,21 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
           result.forEach((graphiteResponse: GraphiteResponse) => {
             if (graphiteResponse.datapoints) {
               graphiteResponse.datapoints.forEach(([timestamp, value]: [number, number]) => {
-                frame.add({
-                  Time: timestamp * 1000, // Convert to milliseconds
-                  Value: value,
-                });
+                timeValues.push(timestamp * 1000); // Convert to milliseconds
+                valueValues.push(value);
               });
             }
           });
         }
+      });
+
+      // Create a DataFrame with the collected data
+      const frame = createDataFrame({
+        refId: target.refId,
+        fields: [
+          { name: 'Time', type: FieldType.time, values: timeValues },
+          { name: 'Value', type: FieldType.number, values: valueValues },
+        ],
       });
 
       return frame;
