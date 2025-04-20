@@ -13,31 +13,31 @@ import { MyQuery, MyDataSourceOptions, DEFAULT_QUERY, GraphiteEndpoint, Graphite
 import { lastValueFrom } from 'rxjs';
 
 // Define the response type for the query API
-interface QueryResponse {
-  results: {
-    A: {
-      frames?: Array<{
-        name?: string;
-        fields: Array<{
-          name: string;
-          type: string;
-          values: any[];
-        }>;
-      }>;
-      error?: any;
-    };
-  };
-}
+// interface QueryResponse {
+//   results: {
+//     A: {
+//       frames?: Array<{
+//         name?: string;
+//         fields: Array<{
+//           name: string;
+//           type: string;
+//           values: any[];
+//         }>;
+//       }>;
+//       error?: any;
+//     };
+//   };
+// }
 
 // Define the frame type for better type safety
-interface GraphiteFrame {
-  name?: string;
-  fields: Array<{
-    name: string;
-    type: string;
-    values: any[];
-  }>;
-}
+// interface GraphiteFrame {
+//   name?: string;
+//   fields: Array<{
+//     name: string;
+//     type: string;
+//     values: any[];
+//   }>;
+// }
 
 export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
   graphiteEndpoints: GraphiteEndpoint[];
