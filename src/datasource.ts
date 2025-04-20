@@ -66,50 +66,22 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
     const to = range!.to.valueOf();
     console.log('Time range:', { from, to });
 
-    // Get all Graphite datasources from Grafana
-    let allGraphiteEndpoints = [...this.graphiteEndpoints];
-
-    try {
-      // Fetch all datasources from Grafana
-      const datasources = await getBackendSrv().get('/api/datasources');
-      console.log('All datasources:', datasources);
-
-      // Filter for Graphite datasources
-      const graphiteDatasources = datasources.filter((ds: any) => ds.type === 'graphite');
-      console.log('Found Graphite datasources:', graphiteDatasources);
-
-      // Add each Graphite datasource as an endpoint if not already included
-      for (const ds of graphiteDatasources) {
-        // Check if this datasource is already in our endpoints
-        const exists = allGraphiteEndpoints.some((ep) => ep.url === ds.url);
-
-        if (!exists) {
-          // Add the datasource as a new endpoint
-          allGraphiteEndpoints.push({
-            name: ds.name,
-            url: ds.url,
-            id: ds.id, // Store the datasource ID for proxy requests
-          });
-          console.log(`Added Graphite datasource: ${ds.name} at ${ds.url} with ID ${ds.id}`);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching datasources:', error);
-      // Continue with the configured endpoints if there's an error
-    }
+    // Use only the configured endpoints
+    const allGraphiteEndpoints = [...this.graphiteEndpoints];
 
     if (allGraphiteEndpoints.length === 0) {
       console.warn('No Graphite endpoints configured. Returning empty data frame.');
       return { data: [] };
     }
 
-    console.log('Using all Graphite endpoints:', allGraphiteEndpoints);
+    console.log('Using configured Graphite endpoints:', allGraphiteEndpoints);
 
-    const promises = options.targets.map(async (target) => {
+    // Create a list to hold all data frames
+    const allDataFrames: any[] = [];
+
+    // Process each target
+    for (const target of options.targets) {
       console.log('Processing target:', target);
-      // Collect all data points from all endpoints
-      const timeValues: number[] = [];
-      const valueValues: number[] = [];
 
       // Query all Graphite endpoints
       const endpointPromises = allGraphiteEndpoints.map(async (endpoint) => {
@@ -117,7 +89,7 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
         try {
           const response = await this.queryGraphite(endpoint, target, from, to);
           console.log(`Response from ${endpoint.name}:`, response);
-          return response;
+          return { endpoint, response };
         } catch (error) {
           console.error(`Error querying Graphite endpoint ${endpoint.name}:`, error);
           return null;
@@ -127,40 +99,50 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
       const results = await Promise.all(endpointPromises);
       console.log('All endpoint results:', results);
 
-      // Combine results from all endpoints
+      // Process each result from each endpoint
       results.forEach((result) => {
         if (result) {
-          result.forEach((graphiteResponse: GraphiteResponse) => {
-            if (graphiteResponse.datapoints) {
+          const { endpoint, response } = result;
+
+          // Process each series in the response
+          response.forEach((graphiteResponse: GraphiteResponse) => {
+            if (graphiteResponse.datapoints && graphiteResponse.datapoints.length > 0) {
               console.log(
                 `Processing ${graphiteResponse.datapoints.length} datapoints from ${graphiteResponse.target}`
               );
+
+              // Extract time and value arrays
+              const timeValues: number[] = [];
+              const valueValues: number[] = [];
+
               graphiteResponse.datapoints.forEach(([timestamp, value]: [number, number]) => {
                 timeValues.push(timestamp * 1000); // Convert to milliseconds
                 valueValues.push(value);
               });
+
+              // Create a unique name for this series that includes the endpoint name
+              const seriesName = `${endpoint.name}: ${graphiteResponse.target}`;
+
+              // Create a DataFrame for this series
+              const frame = createDataFrame({
+                refId: target.refId,
+                name: seriesName,
+                fields: [
+                  { name: 'Time', type: FieldType.time, values: timeValues },
+                  { name: 'Value', type: FieldType.number, values: valueValues },
+                ],
+              });
+
+              // Add this frame to our list
+              allDataFrames.push(frame);
             }
           });
         }
       });
+    }
 
-      console.log(`Total datapoints collected: ${timeValues.length}`);
-
-      // Create a DataFrame with the collected data
-      const frame = createDataFrame({
-        refId: target.refId,
-        fields: [
-          { name: 'Time', type: FieldType.time, values: timeValues },
-          { name: 'Value', type: FieldType.number, values: valueValues },
-        ],
-      });
-
-      return frame;
-    });
-
-    const data = await Promise.all(promises);
-    console.log('Final data frames:', data);
-    return { data };
+    console.log(`Created ${allDataFrames.length} data frames`);
+    return { data: allDataFrames };
   }
 
   private async queryGraphite(
@@ -189,8 +171,8 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
         maxDataPoints: (query.maxDataPoints || 1000).toString(),
       });
 
-      const url = `${endpoint.url}/render?${params.toString()}`;
-      console.log(`Sending direct request to: ${url}`);
+      const directUrl = `${endpoint.url}/render?${params.toString()}`;
+      console.log(`Sending direct request to: ${directUrl}`);
 
       try {
         // Use our custom proxy implementation
@@ -216,9 +198,9 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
         console.error(`Error querying Graphite endpoint ${endpoint.name} through proxy:`, error);
 
         // If proxy fails, try direct fetch as a fallback
-        console.log(`Trying direct fetch to ${endpoint.url} as fallback`);
+        console.log(`Trying direct fetch to ${directUrl} as fallback`);
         try {
-          const directResponse = await fetch(url);
+          const directResponse = await fetch(directUrl);
           if (!directResponse.ok) {
             throw new Error(`HTTP error! status: ${directResponse.status}`);
           }

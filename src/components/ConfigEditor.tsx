@@ -65,11 +65,6 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
     }
   };
 
-  // Run discovery on component mount
-  useEffect(() => {
-    discoverGraphiteDatasources();
-  }, []);
-
   const onEndpointChange = (index: number, field: keyof GraphiteEndpoint, value: string) => {
     const updatedEndpoints = [...endpoints];
     updatedEndpoints[index] = {
