@@ -7,7 +7,7 @@ Install the plugin. Make sure it appears in the "Datasource" Grafana page.
 Go to Datasources > crowdclean. 
 Either manually enter your graphite datasources or click the button to automatically detect which datasources are currently connected. Make sure they're working by clicking the test button.
 
-Build a dashboard with your datasources by creating a new panel and connecting to the "crowdclean" datasource. After that, enter your query. When you query, you can use full-length queries that go to a leaf metric (it won’t work for node metrics) so queries like “frontend.meter.page.views.mean” or “api.*.*.*.*” or even “*.*.*.*.*” will work with the metric simulator. 
+Build a dashboard with your datasources by creating a new panel and connecting to the "crowdclean" datasource. After that, enter your query. When you query, you can use full-length queries that go to a leaf metric (it won’t work for node metrics) so queries like “frontend.meter.page.views.mean” or “api.\*.\*.\*.\*” or even “\*.\*.\*.\*.\*” will work with the metric simulator. 
 
 ## For development:
 
