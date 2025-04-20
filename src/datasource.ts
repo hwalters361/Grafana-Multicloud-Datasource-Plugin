@@ -124,7 +124,10 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
               // Create a map to store timestamp-value pairs
               const dataMap = new Map<number, number>();
 
-              graphiteResponse.datapoints.forEach(([timestamp, value]: [number, number]) => {
+              graphiteResponse.datapoints.forEach((datapoint: [number | null, number]) => {
+                // The format is [value, timestamp] instead of [timestamp, value]
+                const [value, timestamp] = datapoint;
+
                 // Check for null or undefined values
                 if (value === null || value === undefined) {
                   console.warn(`Null or undefined value found at timestamp ${timestamp}`);
@@ -151,6 +154,23 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
                   `First time value: ${timeValues[0]}, Last time value: ${timeValues[timeValues.length - 1]}`
                 );
                 console.log(`First value: ${valueValues[0]}, Last value: ${valueValues[valueValues.length - 1]}`);
+
+                // Check if the time values are in the expected range
+                const now = Date.now();
+                const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
+                const oneYearFromNow = now + 365 * 24 * 60 * 60 * 1000;
+
+                if (timeValues[0] < oneYearAgo || timeValues[timeValues.length - 1] > oneYearFromNow) {
+                  console.warn(`Time values are outside the expected range for ${graphiteResponse.target}`);
+                  console.warn(
+                    `Expected range: ${new Date(oneYearAgo).toISOString()} to ${new Date(oneYearFromNow).toISOString()}`
+                  );
+                  console.warn(
+                    `Actual range: ${new Date(timeValues[0]).toISOString()} to ${new Date(
+                      timeValues[timeValues.length - 1]
+                    ).toISOString()}`
+                  );
+                }
               }
 
               // Create a unique name for this series that includes the endpoint name

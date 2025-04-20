@@ -27,8 +27,9 @@ export interface DataPoint {
 }
 
 export interface GraphiteResponse {
-  datapoints: [number, number][]; // [timestamp, value][]
+  datapoints: [number | null, number][]; // [value, timestamp][]
   target: string;
+  tags?: Record<string, string>;
 }
 
 export interface DataSourceResponse {
