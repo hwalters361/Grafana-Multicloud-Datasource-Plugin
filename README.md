@@ -1,6 +1,8 @@
 # CrowdClean Datasource Plugin
 This Datasource plugin is intended to satisfy the third deliverable for the Crowdstrike and Harvey Mudd College Clinic project for 2024-2025 : Grafana Observability Optimizations. This plugin introduces a custom datasource that accepts a query and applies it to connected Graphite datasources.
 
+[Demo](https://youtu.be/h7Fi-K_P4oE)
+
 ## How to use:
 
 Install the plugin. Make sure it appears in the "Datasource" Grafana page. 
